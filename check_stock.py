@@ -1,9 +1,9 @@
 import os
 import sys
-from datetime import datetime, timezone, timedelta
 import requests
+from datetime import datetime, timezone, timedelta
 
-# 取得香港時間 (UTC+8)
+# 香港時間 (UTC+8)
 HKT = timezone(timedelta(hours=8))
 now_str = datetime.now(HKT).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -14,103 +14,132 @@ if not TG_BOT_TOKEN or not TG_CHAT_ID:
     print("❌ 缺少 TG_BOT_TOKEN 或 TG_CHAT_ID，請在 GitHub Secrets 設定！")
     sys.exit(1)
 
-# 兩隻色的專屬 Apple 官方直接購買連結
-BUY_LINKS = {
-    "Burgundy 酒紅": "https://www.apple.com/hk/shop/buy-iphone/iphone-18-pro/6.9-inch-display-256gb-burgundy",
-    "Black 黑色": "https://www.apple.com/hk/shop/buy-iphone/iphone-18-pro/6.9-inch-display-256gb-black",
+# Apple 官方精確 SKU (香港港版 ZA/A)
+PRODUCTS = {
+    "MJXQ4ZA/A": {
+        "name": "Burgundy 酒紅 256GB",
+        "url": "https://www.apple.com/hk/shop/buy-iphone/iphone-18-pro/6.9-inch-display-256gb-burgundy"
+    },
+    "MJXN4ZA/A": {
+        "name": "Black 黑色 256GB",
+        "url": "https://www.apple.com/hk/shop/buy-iphone/iphone-18-pro/6.9-inch-display-256gb-black"
+    }
 }
 
-def fetch_apple_stock():
+# 香港 Apple 直營店中英文對應
+STORE_NAMES = {
+    "ifc mall": "中環 ifc mall",
+    "Canton Road": "尖沙咀 廣東道",
+    "Causeway Bay": "銅鑼灣 希慎廣場",
+    "Festival Walk": "九龍塘 又一城",
+    "New Town Plaza": "沙田 新城市廣場",
+    "apm Hong Kong": "觀塘 apm"
+}
+
+def check_real_apple_stock():
     """
-    監測指定型號與兩隻顏色：
-    1. iPhone 18 Pro Max 256GB Burgundy - HK$11,499
-    2. iPhone 18 Pro Max 256GB Black - HK$11,499
+    直接向 Apple 香港官方零售庫存 API 請求即時真實數據
     """
-    stock_status = {
-        "中環 ifc mall": {
-            "Burgundy 酒紅": "✅ 有貨",
-            "Black 黑色": "✅ 有貨"
-        },
-        "尖沙咀 廣東道": {
-            "Burgundy 酒紅": "✅ 有貨",
-            "Black 黑色": "❌ 缺貨"
-        },
-        "銅鑼灣 希慎廣場": {
-            "Burgundy 酒紅": "⏳ 少量",
-            "Black 黑色": "✅ 有貨"
-        },
-        "九龍塘 又一城": {
-            "Burgundy 酒紅": "✅ 有貨",
-            "Black 黑色": "✅ 有貨"
-        },
-        "沙田 新城市廣場": {
-            "Burgundy 酒紅": "❌ 缺貨",
-            "Black 黑色": "⏳ 少量"
-        },
-        "觀塘 apm": {
-            "Burgundy 酒紅": "✅ 有貨",
-            "Black 黑色": "✅ 有貨"
-        },
+    url = "https://www.apple.com/hk/shop/retail/pickup-message"
+    params = {
+        "pl": "true",
+        "mts.0": "regular",
+        "location": "Hong Kong",
+        "parts.0": "MJXQ4ZA/A",
+        "parts.1": "MJXN4ZA/A"
     }
-    return stock_status
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://www.apple.com/hk/shop/buy-iphone/iphone-18-pro"
+    }
 
-def format_telegram_message(stock_data):
-    # 檢查是否有任何門市有現貨 (✅ 或 ⏳)
-    burgundy_available_stores = []
-    black_available_stores = []
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
+        if resp.status_code != 200:
+            print(f"❌ Apple API 請求失敗，HTTP 狀態碼: {resp.status_code}")
+            return None, False
 
-    for store, items in stock_data.items():
-        if "✅" in items.get("Burgundy 酒紅", "") or "⏳" in items.get("Burgundy 酒紅", ""):
-            burgundy_available_stores.append(store)
-        if "✅" in items.get("Black 黑色", "") or "⏳" in items.get("Black 黑色", ""):
-            black_available_stores.append(store)
+        data = resp.json()
+        stores = data.get("body", {}).get("stores", [])
+        
+        results = {}
+        has_any_stock = False
 
-    has_stock = len(burgundy_available_stores) > 0 or len(black_available_stores) > 0
+        for store in stores:
+            raw_name = store.get("storeName", "")
+            store_display = STORE_NAMES.get(raw_name, raw_name)
+            results[store_display] = {}
 
-    if not has_stock:
-        # 如果全部門市均缺貨，只記錄 log，不發訊打擾
-        print("ℹ️ 目前全部門市缺貨中，不發送通知。")
-        return None
+            parts_avail = store.get("partsAvailability", {})
+            for part_id, p_info in PRODUCTS.items():
+                sku_data = parts_avail.get(part_id, {})
+                pickup_display = sku_data.get("pickupDisplay", "unavailable")
 
+                # 只有 Apple 官方顯示 available 時才代表真實能落單取貨
+                if pickup_display == "available":
+                    status = "✅ 即日有貨"
+                    has_any_stock = True
+                else:
+                    status = "❌ 缺貨"
+
+                results[store_display][p_info["name"]] = status
+
+        return results, has_any_stock
+
+    except Exception as e:
+        print(f"❌ 查詢 Apple 官方庫存出錯: {e}")
+        return None, False
+
+def format_telegram_message(stock_results):
     lines = []
-    lines.append("🚨 *【有貨提醒】iPhone 18 Pro Max 256GB* 🚨")
-    lines.append("🔔 *一iPhoneTrade 搶機監測(免費體驗版)*")
-    lines.append(f"⏱ 更新時間：`{now_str}`")
-    lines.append("💰 官方售價：*HK$11,499*\n")
+    lines.append("🚨 *【Apple 官方真實現貨提醒】* 🚨")
+    lines.append("🔔 *一iPhoneTrade 搶機監測(即時真實庫存)*")
+    lines.append(f"⏱ 監測時間：`{now_str}`")
+    lines.append("📱 *型號：iPhone 18 Pro Max 256GB*")
+    lines.append("💰 官方定價：*HK$11,499*\n")
     lines.append("━━━━━━━━━━━━━━━━━━━")
 
-    for store, items in stock_data.items():
+    for store, items in stock_results.items():
         lines.append(f"📍 *{store}*")
-        lines.append(f"  • Burgundy (酒紅)：{items.get('Burgundy 酒紅', '未更新')}")
-        lines.append(f"  • Black (黑色)：{items.get('Black 黑色', '未更新')}")
+        for prod_name, status in items.items():
+            lines.append(f"  • {prod_name}：{status}")
         lines.append("")
 
     lines.append("━━━━━━━━━━━━━━━━━━━")
-    lines.append("🛒 *直達官方購買連結 (立即搶購)：*")
-    lines.append(f"🍷 [Burgundy 酒紅 256GB 購買直達]({BUY_LINKS['Burgundy 酒紅']})")
-    lines.append(f"🖤 [Black 黑色 256GB 購買直達]({BUY_LINKS['Black 黑色']})")
-    lines.append("\n💡 *提示：點擊連結直達 Apple Store，請提前備妥 Apple ID 與付款資訊！*")
+    lines.append("🛒 *官方直達搶購連結 (立即購買)：*")
+    lines.append(f"🍷 [Burgundy 酒紅 256GB 官方購買直達]({PRODUCTS['MJXQ4ZA/A']['url']})")
+    lines.append(f"🖤 [Black 黑色 256GB 官方購買直達]({PRODUCTS['MJXN4ZA/A']['url']})")
+    lines.append("\n⚡️ *Apple 現貨隨時被秒殺，點擊連結直達結帳！*")
 
     return "\n".join(lines)
 
 def send_telegram(text):
-    if not text:
-        return
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TG_CHAT_ID,
         "text": text,
         "parse_mode": "Markdown",
-        "disable_web_page_preview": True,
+        "disable_web_page_preview": True
     }
     resp = requests.post(url, json=payload, timeout=10)
     if resp.status_code == 200:
-        print("✅ Telegram 搶機有貨訊息已成功發送！")
+        print("✅ Telegram 庫存通知已成功發送！")
     else:
-        print(f"❌ 發送失敗: {resp.status_code}, 回應: {resp.text}")
-        sys.exit(1)
+        print(f"❌ Telegram 發送失敗: {resp.status_code}, {resp.text}")
 
 if __name__ == "__main__":
-    data = fetch_apple_stock()
-    msg = format_telegram_message(data)
-    send_telegram(msg)
+    stock_results, has_stock = check_real_apple_stock()
+
+    if not stock_results:
+        print("無法取得 Apple 官方數據。")
+        sys.exit(1)
+
+    print(f"[{now_str}] 查詢成功！是否有現貨: {has_stock}")
+
+    # 「有貨先提醒」：只有當 Apple 官方回傳有貨或手動強制測試時才推播
+    force_send = os.environ.get("FORCE_SEND", "false").lower() == "true"
+    if has_stock or force_send:
+        msg = format_telegram_message(stock_results)
+        send_telegram(msg)
+    else:
+        print("全港 6 間 Apple Store 目前真實狀態為缺貨中，不打擾發送 Telegram。")
