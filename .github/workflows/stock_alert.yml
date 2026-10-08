@@ -2,9 +2,15 @@ name: iPhone 18 Pro Max Stock Alert
 
 on:
   schedule:
-    # 每 5 分鐘自動執行一次
+    # 每 5 分鐘自動向 Apple 官方查詢一次
     - cron: '*/5 * * * *'
-  workflow_dispatch: # 支援在網頁上手動點擊執行測試
+  workflow_dispatch:
+    inputs:
+      force_send:
+        description: '是否強制發送 Telegram 測試通知（即使全港缺貨）'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   check-stock:
@@ -26,5 +32,6 @@ jobs:
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          FORCE_SEND: ${{ inputs.force_send || 'false' }}
         run: |
           python check_stock.py
