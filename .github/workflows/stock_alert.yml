@@ -2,7 +2,7 @@ name: iPhone 18 Pro Max Stock Alert
 
 on:
   schedule:
-    # 每 5 分鐘自動向 Apple 官方查詢一次
+    # 每 5 分鐘自動啟動一次，配合 Python 腳本達到每 30 秒查一次
     - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
