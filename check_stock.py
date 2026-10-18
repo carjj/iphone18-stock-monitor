@@ -90,6 +90,12 @@ def read_state():
 
 
 def main():
+    if env("TEST_NOTIFY", "false").lower() == "true":
+        now = datetime.now(HKT).strftime("%Y-%m-%d %H:%M:%S HKT")
+        send_telegram(f"✅ iPhone Duo Monitor Telegram 測試成功。\n時間：{now}\n此為測試訊息，不代表目前有貨。")
+        print("Telegram 測試訊息已送出。")
+        return
+
     available = check_stock()
     current = sorted(available)
     previous = read_state().get("available", [])
