@@ -17,7 +17,7 @@
 
 1. 到 repo **Settings → Actions → General → Workflow permissions**，允許 workflow 讀寫 repository（`contents: write`）。
 2. 到 **Actions** 頁面啟用 workflows。
-3. 手動執行一次 **iPhone Duo Apple HK Pickup Monitor** workflow 作測試；之後排程約每 5 分鐘查一次。
+3. 到 **Actions → iPhone Duo Apple HK Pickup Monitor → Run workflow**，勾選 `test_notify` 後執行，可向 Telegram 發送一則測試訊息（不查庫存）。不勾選則正常查庫存。之後排程約每 5 分鐘查一次。
 
 GitHub Actions 的排程不是秒級即時，忙碌時可能延遲。Apple 亦可能限流或更改庫存查詢介面；如 Apple 回應錯誤，本程式會讓該次 workflow 失敗，不會將查詢錯誤當成缺貨。
 
