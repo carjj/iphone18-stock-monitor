@@ -2,7 +2,14 @@ name: iPhone Duo Apple HK Pickup Monitor
 
 on:
   workflow_dispatch:
+    inputs:
+      test_notify:
+        description: "只發一則 Telegram 測試訊息，不查庫存"
+        required: false
+        type: boolean
+        default: false
   schedule:
+    # GitHub 排程非秒級即時；此設定約每五分鐘執行一次。
     - cron: "*/5 * * * *"
 
 permissions:
@@ -34,6 +41,7 @@ jobs:
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TEST_NOTIFY: ${{ inputs.test_notify || false }}
         run: python check_stock.py
 
       - name: Persist last availability state
