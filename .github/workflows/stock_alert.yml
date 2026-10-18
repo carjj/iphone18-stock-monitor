@@ -1,37 +1,49 @@
-name: iPhone 18 Pro Max Stock Alert
+name: iPhone Duo Apple HK Pickup Monitor
 
 on:
-  schedule:
-    # 每 5 分鐘自動啟動一次，配合 Python 腳本達到每 30 秒查一次
-    - cron: '*/5 * * * *'
   workflow_dispatch:
-    inputs:
-      force_send:
-        description: '是否強制發送 Telegram 測試通知（即使全港缺貨）'
-        required: false
-        default: 'false'
-        type: boolean
+  schedule:
+    # GitHub 排程非秒級即時；此設定約每五分鐘執行一次。
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: iphone-duo-stock-monitor
+  cancel-in-progress: false
 
 jobs:
   check-stock:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.12"
 
-      - name: Install dependencies
-        run: |
-          pip install requests
+      - name: Install dependency
+        run: python -m pip install requests
 
-      - name: Run stock checker
+      - name: Check Apple pickup availability and notify Telegram
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          FORCE_SEND: ${{ inputs.force_send || 'false' }}
+        run: python check_stock.py
+
+      - name: Persist last availability state
+        if: always() && hashFiles('stock_state.json') != ''
         run: |
-          python check_stock.py
+          if ! git diff --quiet -- stock_state.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add stock_state.json
+            git commit -m "Update iPhone Duo stock state [skip ci]"
+            git push
+          fi
